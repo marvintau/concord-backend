@@ -1,16 +1,26 @@
 const Schema = require('@marvintau/schema');
 
+const Datastore = require('nedb-promise');
+const db = new Datastore({
+  // filename: path.resolve(__dirname, '../data_store/data.json'),
+  // autoload: true
+});
+db.ensureIndex({fieldName: '_table'});
+
 class DataTable {
 
   constructor(tableName, schema) {
 
-    this.tableName = tableName;
-    this.schema = new Schema(schema);
-
     if (tableName === undefined) {
-      throw {code: 'DEAD_TABLENAME_NOT_SPECIFIED'}
+      throw {code: 'DEAD_MISSING_TABLE_NAME'}
+    } else if (typeof tableName !== 'string') {
+      throw {code: 'DEAD_INVALID_TABLE_NAME'}
+    } else if (schema === undefined) {
+      throw {code: 'DEAD_MISSING_SCHEMA'};
     }
 
+    this.tableName = tableName;
+    this.schema = new Schema(schema);
   }
 
   async create(recs) {
@@ -19,72 +29,61 @@ class DataTable {
       recs = [recs];
     }
 
-    const normalizedRecs = recs.map(this.schema.create);
+    const normalizedRecs = [];
+    for (let rec of recs) {
+      normalizedRecs.push(this.schema.create(rec));
+    }
     
-    const ok = normalizedRecs.every((rec) => {
-      const {ok} = this.schema.validate(rec);
-      return ok;
+    const validated = normalizedRecs.map((rec) => {
+      return this.schema.validate(rec);
     })
 
+    const ok = validated.every(({ok}) => ok);
+    const traces = validted.filter(({trace}) => trace !== undefined);
+
     if (ok) try {
-      const preparedRecs = records.map(rec => ({...rec, table}));
+      const preparedRecs = records.map(rec => ({...rec, _table}));
       return db.insert(preparedRecs);
     } catch {
       throw {code: 'DEAD_ERROR_INSERTING'}
     } else {
-      throw {code: 'DEAD_INSERTING_INVALID_DATA'}
+      throw {code: 'DEAD_INSERTING_INVALID_DATA', traces}
     }
   }
 
-  async retrieve({dataTable, excludeDataTable=true, ...restCrits}) {
+  async retrieve(crits, {findOne=true}={}) {
 
-    const tableName = this.tableName;
+    const _table = this.tableName;
 
-    if (dataTable === undefined){
-      const result = await db.find({tableName, ...restCrits});
-      if (excludeDataTable){
-        result = result.map(({data, ...restDoc}) => ({...restDoc}));
-      }
-      return result;
+    if (findOne) {
+      return await db.findOne({_table, ...crits});
     } else {
-      const resultDoc = await db.findOne({tableName, ...restCrits});
-      if (!resultDoc) {
-        throw {code: 'DEAD_DOC_NOT_FOUND'}
-      }
-      if (resultDoc.data && resultDoc.data[dataTable]){
-        return result.doc.data[dataTable];
-      } else {
-        throw {code: 'DEAD_DATA_NOT_EXIST'}
-      }
+      return await db.find({_table, ...crits});
     }
 
   }
 
-  // General update
-  // non-datatable fields will be directly updated.
-  // datatable will be overwritten.
-  // 
-  // Note: Make sure the POST method supports large amount of data, when uploading
-  // big datatable.
-  async update({vals, ...restCrits}) {
+  async update(crits, vals) {
 
-    const tableName = this.tableName;
-    const destDoc = await db.findOne({tableName, ...restCrits});
+    const tabCrits = {_table: this.tableName, ...crits};
+
+    const destDoc = await db.findOne(tabCrits);
 
     if (!destDoc){
       throw {code:'DEAD_DOC_NOT_FOUND_WITH_GIVEN_CRITS'}
     }
 
     if (dataTable === undefined){
-      return db.update(restCrits, vals);
+      return db.update(tabCrits, {$set: vals});
     }
   }
 
   async remove(crits) {
-    return db.remove(crits, {multi: true});
+    return db.remove({_table: this.tableName, ...crits}, {multi: true});
   }
 }
 
 module.exports = {
-  DataTable
+  DataTable,
+  db
 }
