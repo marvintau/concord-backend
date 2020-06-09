@@ -25,13 +25,16 @@ class DataTable {
 
   async create(recs) {
 
+    const _table = this.tableName;
+
     if (!Array.isArray(recs)){
       recs = [recs];
     }
 
     const normalizedRecs = [];
     for (let rec of recs) {
-      normalizedRecs.push(this.schema.create(rec));
+      const {data} = this.schema.create(rec);
+      normalizedRecs.push(data);
     }
     
     const validated = normalizedRecs.map((rec) => {
@@ -39,19 +42,20 @@ class DataTable {
     })
 
     const ok = validated.every(({ok}) => ok);
-    const traces = validted.filter(({trace}) => trace !== undefined);
+    const traces = validated.filter(({trace}) => trace !== undefined);
 
     if (ok) try {
-      const preparedRecs = records.map(rec => ({...rec, _table}));
+      const preparedRecs = recs.map(rec => ({...rec, _table}));
       return db.insert(preparedRecs);
-    } catch {
+    } catch (error){
+      console.log(error);
       throw {code: 'DEAD_ERROR_INSERTING'}
     } else {
       throw {code: 'DEAD_INSERTING_INVALID_DATA', traces}
     }
   }
 
-  async retrieve(crits, {findOne=true}={}) {
+  async retrieve(crits, {findOne=false}={}) {
 
     const _table = this.tableName;
 
@@ -73,9 +77,7 @@ class DataTable {
       throw {code:'DEAD_DOC_NOT_FOUND_WITH_GIVEN_CRITS'}
     }
 
-    if (dataTable === undefined){
-      return db.update(tabCrits, {$set: vals});
-    }
+    return db.update(tabCrits, {$set: vals});
   }
 
   async remove(crits) {
